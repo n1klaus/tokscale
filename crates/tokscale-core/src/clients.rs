@@ -387,6 +387,15 @@ define_clients!(
         headless: false,
         parse_local: true,
         submit_default: true
+    },
+    Trae = 23 => {
+        id: "trae",
+        root: PathRoot::Config,
+        relative: "trae-cache/sessions",
+        pattern: "*.json",
+        headless: false,
+        parse_local: true,
+        submit_default: false
     }
 );
 
@@ -439,7 +448,7 @@ mod tests {
 
     #[test]
     fn test_client_id_count() {
-        assert_eq!(ClientId::COUNT, 23);
+        assert_eq!(ClientId::COUNT, 24);
     }
 
     #[test]

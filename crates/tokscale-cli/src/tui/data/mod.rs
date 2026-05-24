@@ -1298,7 +1298,7 @@ mod tests {
     #[test]
     fn test_client_all() {
         let clients = ClientId::ALL;
-        assert_eq!(clients.len(), 23);
+        assert_eq!(clients.len(), 24);
         assert_eq!(clients[0], ClientId::OpenCode);
         assert_eq!(clients[1], ClientId::Claude);
         assert_eq!(clients[2], ClientId::Codex);
@@ -1322,6 +1322,7 @@ mod tests {
         assert_eq!(clients[20], ClientId::Antigravity);
         assert_eq!(clients[21], ClientId::Zed);
         assert_eq!(clients[22], ClientId::Kiro);
+        assert_eq!(clients[23], ClientId::Trae);
     }
 
     #[test]
@@ -1395,6 +1396,8 @@ mod tests {
             crate::tui::client_ui::display_name(ClientId::Zed),
             "Zed Agent"
         );
+        assert_eq!(crate::tui::client_ui::display_name(ClientId::Kiro), "Kiro");
+        assert_eq!(crate::tui::client_ui::display_name(ClientId::Trae), "Trae");
     }
 
     #[test]
@@ -1420,6 +1423,8 @@ mod tests {
         assert_eq!(crate::tui::client_ui::hotkey(ClientId::Codebuff), 'b');
         assert_eq!(crate::tui::client_ui::hotkey(ClientId::Antigravity), 'a');
         assert_eq!(crate::tui::client_ui::hotkey(ClientId::Zed), 'z');
+        assert_eq!(crate::tui::client_ui::hotkey(ClientId::Kiro), 'i');
+        assert_eq!(crate::tui::client_ui::hotkey(ClientId::Trae), 'y');
     }
 
     #[test]
@@ -1496,6 +1501,14 @@ mod tests {
             Some(ClientId::Antigravity)
         );
         assert_eq!(crate::tui::client_ui::from_hotkey('z'), Some(ClientId::Zed));
+        assert_eq!(
+            crate::tui::client_ui::from_hotkey('i'),
+            Some(ClientId::Kiro)
+        );
+        assert_eq!(
+            crate::tui::client_ui::from_hotkey('y'),
+            Some(ClientId::Trae)
+        );
     }
 
     #[test]
