@@ -32,6 +32,13 @@ Why: inline `--body "$(cat <<'EOF' ... EOF)"` patterns lead to recurring mistake
 
 This applies to all GitHub-content authoring through the CLI — PR bodies, issue bodies, comments, edits. Commit message bodies should also follow this rule: write prose paragraphs as continuous lines, not hard-wrapped at 80 columns.
 
+## Git Identity & Merge Discipline
+
+- Before making any commit, verify the local git identity is exactly `Junho Yeo <i@junho.io>`. If it is not, set `git config user.name "Junho Yeo"` and `git config user.email "i@junho.io"` before committing.
+- Never commit as worker/agent identities such as `worker1`, `worker2`, `worker3`, or `*@example.invalid`.
+- When merging pull requests through `gh`, use squash merge (`gh pr merge --squash ...`) unless the user explicitly requests another merge strategy.
+- Before merging, verify the squash commit title is the intended conventional PR title and does not contain worker/agent/internal review jargon.
+
 ## Commit Message Convention
 
 ```
