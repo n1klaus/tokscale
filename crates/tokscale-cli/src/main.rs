@@ -6773,7 +6773,10 @@ mod tests {
         assert_eq!(day.clients.len(), 2);
         assert!(day.clients.iter().all(|c| c.model_id != "auto"));
         // premium-tool-call is preserved (server carve-out).
-        assert!(day.clients.iter().any(|c| c.model_id == "premium-tool-call"));
+        assert!(day
+            .clients
+            .iter()
+            .any(|c| c.model_id == "premium-tool-call"));
         // Tokens untouched; cost/messages reduced by the dropped row only.
         assert_eq!(day.totals.tokens, 100);
         assert!((day.totals.cost - 2.08).abs() < 1e-9);
