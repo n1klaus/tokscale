@@ -20,7 +20,10 @@ use std::time::UNIX_EPOCH;
 // 20: Codex fork replay parsing now keeps user-fork turns after repeated child
 // session_meta rows; cached Codex entries from older parser logic can be empty.
 // (19 was the jcode parser change in #718 — bump again so those caches reparse.)
-const CACHE_SCHEMA_VERSION: u32 = 22;
+// 23: Jcode parser now does journal-wins merge (first-occurrence-targeted) and
+// timezone-less timestamp parsing; schema-22 caches return stale snapshot
+// token_usage, so invalidate them.
+const CACHE_SCHEMA_VERSION: u32 = 23;
 const CACHE_FILENAME: &str = "source-message-cache.bin";
 const CACHE_LOCK_FILENAME: &str = "source-message-cache.lock";
 const MAX_CACHE_FILE_BYTES: u64 = 256 * 1024 * 1024;
@@ -145,8 +148,10 @@ impl SourceFingerprint {
     /// until the next checkpoint rewrites the snapshot, so the source-message
     /// cache must invalidate when either file changes.
     pub(crate) fn from_jcode_path(path: &Path) -> Option<Self> {
-        let related_paths =
-            std::iter::once((".journal.jsonl".to_string(), jcode_journal_path(path)));
+        let related_paths = std::iter::once((
+            ".journal.jsonl".to_string(),
+            crate::sessions::jcode::jcode_journal_path(path),
+        ));
         Self::from_path_with_related(path, related_paths)
     }
 
@@ -207,17 +212,6 @@ impl SourceFingerprint {
             related_files,
         })
     }
-}
-
-fn jcode_journal_path(path: &Path) -> PathBuf {
-    let Some(file_name) = path.file_name().and_then(|name| name.to_str()) else {
-        return append_path_suffix(path, ".journal.jsonl");
-    };
-    let journal_name = file_name
-        .strip_suffix(".json")
-        .map(|stem| format!("{stem}.journal.jsonl"))
-        .unwrap_or_else(|| format!("{file_name}.journal.jsonl"));
-    path.with_file_name(journal_name)
 }
 
 impl RelatedFileFingerprint {
