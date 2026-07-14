@@ -93,6 +93,9 @@ def run():
     for row in all_rows:
         try:
             req_data = json.loads(row["data"])
+            if not isinstance(req_data, dict):
+                print(f"  Skipping row {row['id']}: data is not an object")
+                continue
         except (json.JSONDecodeError, TypeError):
             print(f"  Skipping row {row['id']}: malformed data column")
             continue
