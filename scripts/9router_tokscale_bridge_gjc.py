@@ -96,7 +96,10 @@ def run():
         except (json.JSONDecodeError, TypeError):
             print(f"  Skipping row {row['id']}: malformed data column")
             continue
-        tokens = req_data.get("tokens", {})
+        tokens = req_data.get("tokens") or {}
+        if not isinstance(tokens, dict):
+            print(f"  Skipping row {row['id']}: tokens is not an object")
+            continue
 
         prompt = tokens.get("prompt_tokens", 0) or 0
         completion = tokens.get("completion_tokens", 0) or 0
