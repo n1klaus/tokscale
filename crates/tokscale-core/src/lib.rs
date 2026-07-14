@@ -163,8 +163,8 @@ fn retain_for_requested_clients(
 ) -> bool {
     requested.contains(client)
         || (requested.contains("claude") && client.starts_with("cc-mirror/"))
-        || (requested.contains("gjc") && client == "9router")
-        || (requested.contains("9router") && client == "gjc")
+        || (requested.contains("gjc") && client.eq_ignore_ascii_case("9router"))
+        || (requested.contains("9router") && client.eq_ignore_ascii_case("gjc"))
         || (requested.contains("synthetic")
             && sessions::synthetic::matches_synthetic_filter(client, model_id, provider_id))
 }

@@ -34,5 +34,7 @@ self-host/
 .next/
 .vercel
 .env*.local
-.omp/
+.omp/sessions/
+.omp/mcp.json
+.omp/settings.json
 .claude/skills/

@@ -91,7 +91,11 @@ def run():
 
     messages_by_date: dict[str, list] = {}
     for row in all_rows:
-        req_data = json.loads(row["data"])
+        try:
+            req_data = json.loads(row["data"])
+        except (json.JSONDecodeError, TypeError):
+            print(f"  Skipping row {row['id']}: malformed data column")
+            continue
         tokens = req_data.get("tokens", {})
 
         prompt = tokens.get("prompt_tokens", 0) or 0
@@ -108,7 +112,12 @@ def run():
 
         ts_ms = parse_iso_timestamp(row["timestamp"])
         model = req_data.get("model", row["model"]) or "unknown"
+        # Derive provider from first path segment for qualified IDs
+        # (e.g. "deepseek-ai/deepseek-v4-flash" → "deepseek-ai"),
+        # otherwise pass through the DB value.
         provider = row["provider"] or None
+        if not provider and "/" in model:
+            provider = model.split("/", 1)[0].lstrip("@")
         # Use local timezone (not UTC) so bridge file dates align with
         # tokscale --today / --since/--until, which use chrono::Local.
         date_str = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).astimezone().strftime("%Y-%m-%d")
@@ -149,7 +158,10 @@ def run():
             session_header = {
                 "type": "session",
                 "id": f"9router-{date_str}",
-                "timestamp": entries[0]["message"]["timestamp"],
+                "timestamp": datetime.fromtimestamp(
+                    entries[0]["message"]["timestamp"] / 1000,
+                    tz=timezone.utc,
+                ).isoformat(),
                 "cwd": "/"
             }
             f.write(json.dumps(session_header) + "\n")

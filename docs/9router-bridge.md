@@ -19,7 +19,9 @@ cp scripts/9router_custom_pricing.json ~/.config/tokscale/custom-pricing.json
 
 ### 2. Configure tokscale scanner
 
-Add the bridge output directory to `~/.config/tokscale/settings.json`:
+Add the bridge output directory to your tokscale settings file (default
+`~/.config/tokscale/settings.json`; override with `TOKSCALE_CONFIG_DIR` or
+`XDG_CONFIG_HOME`):
 
 ```json
 {
@@ -62,19 +64,21 @@ as `CostSource::ProviderReported` (authoritative). This prevents
 Omitting the cost field causes `embedded_cost` to return `(0.0, CostSource::Unknown)`,
 allowing the dispatch guard to reprice from tokens + pricing data.
 
-## Provider Derivation
+## Provider Inference
 
-For tokscale's pricing lookup to work, the bridge derives `provider` from the
-model ID's first segment:
+For tokscale's pricing lookup to work, the bridge reads the `provider` column
+from 9Router's database. When the provider field is empty and the model ID
+contains a `/` (e.g. `deepseek-ai/deepseek-v4-flash`), the bridge derives the
+provider hint from the first path segment:
 
 | Model ID | Provider |
 |---|---|
 | `deepseek-ai/deepseek-v4-flash` | `deepseek-ai` |
 | `stepfun-ai/step-3.7-flash` | `stepfun-ai` |
-| `@cf/moonshotai/kimi-k2.5` | `moonshotai` |
-| `mimo-v2.5` | (empty) |
+| `@cf/moonshotai/kimi-k2.5` | `moonshotai` (from DB) |
+| `mimo-v2.5` | `mimo-v2.5` (no `/`, passes through DB value) |
 
-This makes `provider_hint_matches_scoped_provider` succeed in the lookup chain.
+When 9Router provides the provider directly, it is used as-is.
 
 ## 9Router Model Prefixes
 
@@ -101,7 +105,7 @@ file only covers paid models. Free models correctly show `$0.00` cost.
 
 ## Known Limitations
 
-- Ollama models report 0 tokens (upstream API doesn't return usage metadata)
+- Ollama models are omitted when the upstream API returns no usage metadata
 - Bridge regenerates all files on each run (full refresh)
 
 ## Automation
@@ -114,7 +118,7 @@ A systemd user timer runs the bridge every 10 minutes automatically so
 ```bash
 # Install the bridge script where the systemd unit expects it
 mkdir -p ~/.local/share/9router-tokscale/
-cp ~/Documents/Rust/tokscale/scripts/9router_tokscale_bridge_gjc.py ~/.local/share/9router-tokscale/bridge.py
+cp ~/Documents/Rust/tokscale/scripts/9router_tokscale_bridge_gjc.py ~/.local/share/9router-tokscale/9router_tokscale_bridge_gjc.py
 mkdir -p ~/.config/systemd/user/
 cp ~/Documents/Rust/tokscale/scripts/systemd/9router-tokscale-bridge.{service,timer} ~/.config/systemd/user/
 loginctl enable-linger $USER   # so timers run without an active login session

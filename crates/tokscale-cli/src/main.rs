@@ -1141,7 +1141,7 @@ impl ClientFilter {
         Self::value_variants()
             .iter()
             .copied()
-            .filter(|f| !matches!(f, Self::Synthetic))
+            .filter(|f| !matches!(f, Self::Synthetic | Self::NineRouter))
             .collect()
     }
 }
@@ -6402,7 +6402,11 @@ mod tests {
         // --client gjc also round-trips correctly.
         assert_eq!(ClientFilter::Gjc.as_filter_str(), "gjc");
         assert_eq!(ClientFilter::Gjc.to_client_id(), Some(ClientId::Gjc));
-        assert!(true);
+        assert_eq!(
+            ClientFilter::Gjc.to_client_id(),
+            Some(ClientId::Gjc),
+            "--client gjc should map to ClientId::Gjc"
+        );
     }
 
     #[test]

@@ -207,9 +207,7 @@ pub fn parse_pi_file(path: &Path) -> Vec<UnifiedMessage> {
         // valid tokens.
         let provider = match message.provider {
             Some(p) if !p.is_empty() => p,
-            _ => inferred_provider_from_model(&model)
-                .unwrap_or("pi")
-                .to_string(),
+            _ => "pi".to_string(),
         };
 
         let timestamp = entry
