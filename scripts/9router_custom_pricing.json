@@ -16,7 +16,7 @@
     "mimo-v2.5": {
       "input_cost_per_million_tokens": 0.14,
       "output_cost_per_million_tokens": 0.28,
-      "cache_read_input_token_cost_per_million_tokens": 0.075,
+      "cache_read_input_token_cost_per_million_tokens": 0.0028,
       "source": "Models.dev / xiaomi/mimo-v2.5"
     },
     "kimi-k2.5": {
