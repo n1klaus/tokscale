@@ -21,6 +21,7 @@ See docs/9router-bridge.md for full documentation.
 
 import json
 import os
+import tempfile
 import sqlite3
 from pathlib import Path
 from datetime import datetime, timezone
@@ -142,7 +143,9 @@ def run():
     total_entries = 0
     for date_str, entries in sorted(messages_by_date.items()):
         filepath = BRIDGE_DIR / f"9router-{date_str}.jsonl"
-        with open(filepath, "w") as f:
+        with tempfile.NamedTemporaryFile(mode="w", dir=str(BRIDGE_DIR), delete=False, suffix=".tmp") as tmp:
+            f = tmp
+            tmppath = tmp.name
             session_header = {
                 "type": "session",
                 "id": f"9router-{date_str}",
@@ -153,6 +156,7 @@ def run():
             for entry in entries:
                 f.write(json.dumps(entry) + "\n")
                 total_entries += 1
+        os.replace(tmppath, filepath)
 
     print(f"Bridge files written to: {BRIDGE_DIR}")
     print(f"Files: {len(messages_by_date)}, Messages: {total_entries}")

@@ -32,10 +32,10 @@
       "source": "OpenRouter / openai/gpt-oss-120b"
     },
     "@cf/moonshotai/kimi-k2.5": {
-      "input_cost_per_million_tokens": 0.95,
-      "output_cost_per_million_tokens": 4.00,
-      "cache_read_input_token_cost_per_million_tokens": 0.19,
-      "source": "LiteLLM / cloudflare/@cf/moonshotai/kimi-k2.7-code (closest match)"
+      "input_cost_per_million_tokens": 0.60,
+      "output_cost_per_million_tokens": 3.00,
+      "cache_read_input_token_cost_per_million_tokens": 0.10,
+      "source": "Cloudflare / moonshotai/kimi-k2.5"
     },
     "openai/gpt-oss-120b": {
       "input_cost_per_million_tokens": 0.03,

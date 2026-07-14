@@ -112,6 +112,9 @@ A systemd user timer runs the bridge every 10 minutes automatically so
 ### One-time setup
 
 ```bash
+# Install the bridge script where the systemd unit expects it
+mkdir -p ~/.local/share/9router-tokscale/
+cp ~/Documents/Rust/tokscale/scripts/9router_tokscale_bridge_gjc.py ~/.local/share/9router-tokscale/bridge.py
 mkdir -p ~/.config/systemd/user/
 cp ~/Documents/Rust/tokscale/scripts/systemd/9router-tokscale-bridge.{service,timer} ~/.config/systemd/user/
 loginctl enable-linger $USER   # so timers run without an active login session

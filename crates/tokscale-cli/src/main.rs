@@ -6337,10 +6337,12 @@ mod tests {
 
     #[test]
     fn test_client_filter_as_filter_str_matches_client_id_for_overlap() {
-        // Every ClientFilter variant except Synthetic must agree with
-        // ClientId::as_str() so the core filter list stays consistent.
+        // Every ClientFilter variant except Synthetic and NineRouter must
+        // agree with ClientId::as_str() so the core filter list stays
+        // consistent.  NineRouter is a filter-only alias that maps to
+        // ClientId::Gjc and intentionally has no matching ClientId of its own.
         for filter in ClientFilter::value_variants() {
-            if matches!(filter, ClientFilter::Synthetic) {
+            if matches!(filter, ClientFilter::Synthetic | ClientFilter::NineRouter) {
                 continue;
             }
             let id = filter.as_filter_str();
