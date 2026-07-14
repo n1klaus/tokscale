@@ -947,6 +947,7 @@ pub enum ClientFilter {
     Cline,
     #[value(name = "9router")]
     NineRouter,
+    Gjc,
     Grok,
     Jcode,
     Commandcode,
@@ -997,6 +998,7 @@ impl ClientFilter {
             Self::Trae => "trae",
             Self::Warp => "warp",
             Self::Cline => "cline",
+            Self::Gjc => "gjc",
             Self::NineRouter => "9router",
             Self::Grok => "grok",
             Self::Jcode => "jcode",
@@ -1048,6 +1050,7 @@ impl ClientFilter {
             Self::Trae => Some(ClientId::Trae),
             Self::Warp => Some(ClientId::Warp),
             Self::Cline => Some(ClientId::Cline),
+            Self::Gjc => Some(ClientId::Gjc),
             Self::NineRouter => Some(ClientId::Gjc),
             Self::Grok => Some(ClientId::Grok),
             Self::Jcode => Some(ClientId::Jcode),
@@ -1096,7 +1099,7 @@ impl ClientFilter {
             ClientId::Trae => Self::Trae,
             ClientId::Warp => Self::Warp,
             ClientId::Cline => Self::Cline,
-            ClientId::Gjc => Self::NineRouter,
+            ClientId::Gjc => Self::Gjc,
             ClientId::Grok => Self::Grok,
             ClientId::Jcode => Self::Jcode,
             ClientId::CommandCode => Self::Commandcode,
@@ -6358,18 +6361,22 @@ mod tests {
         for filter in ClientFilter::value_variants() {
             match filter.to_client_id() {
                 Some(id) => {
-                    assert_eq!(
-                        ClientFilter::from_client_id(id),
-                        *filter,
-                        "round-trip mismatch for {:?}",
-                        filter
-                    );
-                    assert_eq!(
-                        id.as_str(),
-                        filter.as_filter_str(),
-                        "id string drift between ClientId and ClientFilter for {:?}",
-                        filter
-                    );
+                    // NineRouter is a filter-only alias that maps to Gjc's
+                    // scan root; it intentionally does not round-trip.
+                    if !matches!(filter, ClientFilter::NineRouter) {
+                        assert_eq!(
+                            ClientFilter::from_client_id(id),
+                            *filter,
+                            "round-trip mismatch for {:?}",
+                            filter
+                        );
+                        assert_eq!(
+                            id.as_str(),
+                            filter.as_filter_str(),
+                            "id string drift between ClientId and ClientFilter for {:?}",
+                            filter
+                        );
+                    }
                 }
                 None => {
                     // Synthetic is the only meta-client without a ClientId.
@@ -6388,8 +6395,11 @@ mod tests {
         assert_eq!(ClientFilter::NineRouter.to_client_id(), Some(ClientId::Gjc));
         assert_eq!(
             ClientFilter::from_client_id(ClientId::Gjc),
-            ClientFilter::NineRouter
+            ClientFilter::Gjc
         );
+        // --client gjc also round-trips correctly.
+        assert_eq!(ClientFilter::Gjc.as_filter_str(), "gjc");
+        assert_eq!(ClientFilter::Gjc.to_client_id(), Some(ClientId::Gjc));
         assert!(true);
     }
 
@@ -6402,7 +6412,7 @@ mod tests {
         let filters: Vec<ClientFilter> = ClientFilter::value_variants()
             .iter()
             .copied()
-            .filter(|f| !matches!(f, ClientFilter::Synthetic))
+            .filter(|f| !matches!(f, ClientFilter::Synthetic | ClientFilter::NineRouter))
             .collect();
         let ids: Vec<tokscale_core::ClientId> = tokscale_core::ClientId::ALL.to_vec();
         assert_eq!(filters.len(), ids.len());

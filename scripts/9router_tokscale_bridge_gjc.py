@@ -97,11 +97,10 @@ def run():
         completion = tokens.get("completion_tokens", 0) or 0
         cached = tokens.get("cached_tokens", 0) or 0
 
-        reasoning = 0
-        completion_details = tokens.get("completion_tokens_details", {})
-        if completion_details:
-            reasoning = completion_details.get("reasoning_tokens", 0) or 0
-        completion += reasoning
+        # OpenAI prompt_tokens already includes cached tokens. Subtract
+        # to get non-overlapping buckets: input (non-cached prompt) +
+        # cacheRead (cached prompt) + output (completion).
+        input_tokens = max(prompt - cached, 0)
 
         if prompt == 0 and completion == 0:
             continue
@@ -113,7 +112,7 @@ def run():
         # tokscale --today / --since/--until, which use chrono::Local.
         date_str = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).astimezone().strftime("%Y-%m-%d")
 
-        total = prompt + completion
+        total = input_tokens + cached + completion
 
         msg = {
             "role": "assistant",
@@ -121,7 +120,7 @@ def run():
             "source": "9router",
             "timestamp": ts_ms,
             "usage": {
-                "input": prompt,
+                "input": input_tokens,
                 "output": completion,
                 "cacheRead": cached,
                 "cacheWrite": 0,
@@ -134,6 +133,7 @@ def run():
 
         entry = {
             "type": "message",
+            "id": row["id"],
             "message": msg,
         }
 

@@ -2696,8 +2696,6 @@ fn filter_messages_for_report(
     if let Some(until) = &options.until {
         filtered.retain(|m| m.date.as_str() <= until.as_str());
     }
-    filtered.retain(|m| !(m.client == "pi" && m.provider_id == "9router"));
-
     filtered
 }
 
@@ -3652,8 +3650,6 @@ fn filter_parsed_messages(
     if let Some(until) = &options.until {
         filtered.retain(|m| m.date.as_str() <= until.as_str());
     }
-    filtered.retain(|m| !(m.client == "pi" && m.provider_id == "9router"));
-
     filtered
 }
 
@@ -8578,7 +8574,7 @@ mod tests {
     }
 
     #[test]
-    fn test_filter_messages_drops_pi_9router_combos() {
+    fn test_filter_messages_preserves_pi_9router_when_no_duplicate() {
         let messages = vec![
             UnifiedMessage::new(
                 "pi",
@@ -8605,9 +8601,9 @@ mod tests {
                 0.05,
             ),
         ];
+        // Without verified cross-source dedup, both messages are preserved.
         let filtered = filter_messages_for_report(messages, &ReportOptions::default());
-        assert_eq!(filtered.len(), 1);
-        assert_eq!(filtered[0].client, "9router");
+        assert_eq!(filtered.len(), 2);
     }
 
 }
