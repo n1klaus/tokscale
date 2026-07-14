@@ -7,7 +7,6 @@
 
 use super::utils::file_modified_timestamp_ms;
 use super::{normalize_workspace_key, workspace_label_from_key, UnifiedMessage};
-use crate::provider_identity::inferred_provider_from_model;
 use crate::TokenBreakdown;
 use serde::Deserialize;
 use std::io::{BufRead, BufReader};
