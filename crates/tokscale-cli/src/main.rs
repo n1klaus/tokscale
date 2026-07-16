@@ -6447,7 +6447,7 @@ mod tests {
     }
 
     #[test]
-    fn test_client_filter_default_set_excludes_synthetic() {
+    fn test_client_filter_default_set_excludes_non_distinct_clients() {
         // Synthetic detection is opt-in: it post-processes other clients'
         // sessions to re-attribute messages to a different bucket. The
         // pre-refactor default was "every ClientId, include_synthetic =
