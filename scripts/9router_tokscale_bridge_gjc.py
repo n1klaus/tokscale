@@ -25,6 +25,7 @@ import tempfile
 import sqlite3
 from pathlib import Path
 from datetime import datetime, timezone
+from urllib.parse import quote
 
 ROUTER_DB = Path.home() / ".9router" / "db" / "data.sqlite"
 BRIDGE_DIR = Path.home() / ".local" / "share" / "9router-tokscale" / "sessions"
@@ -53,13 +54,50 @@ def ensure_bridge_dir():
     data from previous bridge runs."""
     BRIDGE_DIR.mkdir(parents=True, exist_ok=True)
 
-def parse_iso_timestamp(ts: str) -> int:
-    """Convert ISO-8601 timestamp to Unix milliseconds."""
+def open_readonly_db(db_path: Path) -> sqlite3.Connection | None:
+    """Open a 9Router DB read-only via a `file:` URI.
+
+    A plain `sqlite3.connect(path)` opens read-write and creates the file
+    if it doesn't exist, so a renamed/missing DB path would silently
+    produce an empty database instead of failing. Returns None (with a
+    guard for the missing-file case) rather than raising.
+    """
+    if not db_path.exists():
+        return None
+    conn = sqlite3.connect(f"file:{quote(str(db_path))}?mode=ro", uri=True)
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def parse_iso_timestamp(ts: str) -> int | None:
+    """Convert ISO-8601 timestamp to Unix milliseconds.
+
+    Returns None for missing/unparseable timestamps rather than defaulting
+    to now(). Session IDs are date-based (e.g. "9router-2026-01-15") and
+    old DB/backup files linger indefinitely, so defaulting to now() would
+    give the same malformed row a NEW dedup key every day it's re-read,
+    causing perpetual re-duplication instead of a one-time skip.
+    """
+    if not ts:
+        return None
     try:
         dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
         return int(dt.timestamp() * 1000)
     except Exception:
-        return int(datetime.now(timezone.utc).timestamp() * 1000)
+        return None
+
+
+def safe_int(value) -> int:
+    """Coerce a token scalar to a non-negative int.
+
+    Handles non-numeric values (e.g. a stringified `"100"`, `None`, or
+    garbage) by returning 0 instead of raising, and clamps negatives to 0
+    so a corrupt negative `cached_tokens` can't inflate computed input.
+    """
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return 0
+    return max(n, 0)
 
 def compute_token_buckets(tokens: dict) -> tuple[int, int, int, int]:
     """Split OpenAI-style token counts into non-overlapping buckets.
@@ -68,21 +106,28 @@ def compute_token_buckets(tokens: dict) -> tuple[int, int, int, int]:
     non-cached input bucket is `max(prompt - cached, 0)` (clamped so a
     `cached_tokens` value larger than `prompt_tokens` never goes negative).
 
+    Token scalars are coerced via `safe_int` so a non-numeric value (e.g.
+    a stringified `"100"`) becomes 0 instead of raising, and negatives are
+    clamped to 0 at ingestion.
+
     Returns (input_tokens, cached, completion, total).
     """
-    prompt = tokens.get("prompt_tokens", 0) or 0
-    completion = tokens.get("completion_tokens", 0) or 0
-    cached = tokens.get("cached_tokens", 0) or 0
+    prompt = safe_int(tokens.get("prompt_tokens", 0))
+    completion = safe_int(tokens.get("completion_tokens", 0))
+    cached = safe_int(tokens.get("cached_tokens", 0))
 
     input_tokens = max(prompt - cached, 0)
     total = input_tokens + cached + completion
     return input_tokens, cached, completion, total
 
-def convert_row_to_entry(row) -> dict | None:
+def convert_row_to_entry(row, stats: dict | None = None) -> dict | None:
     """Convert a single `requestDetails` DB row into a gjc-format entry.
 
     Returns None when the row should be skipped: malformed/NULL `data`
-    JSON, a non-dict `tokens` field, or zero prompt and completion tokens.
+    JSON, a non-dict `tokens` field, zero prompt and completion tokens, or
+    a missing/unparseable timestamp. When `stats` is given, a skipped-for-
+    timestamp row increments `stats["missing_timestamp"]` instead of
+    printing per-row (the caller warns once with the aggregate count).
     """
     try:
         req_data = json.loads(row["data"])
@@ -99,13 +144,22 @@ def convert_row_to_entry(row) -> dict | None:
         return None
 
     input_tokens, cached, completion, total = compute_token_buckets(tokens)
-    prompt = tokens.get("prompt_tokens", 0) or 0
+    prompt = safe_int(tokens.get("prompt_tokens", 0))
 
     if prompt == 0 and completion == 0:
         return None
 
     ts_ms = parse_iso_timestamp(row["timestamp"])
-    model = req_data.get("model", row["model"]) or "unknown"
+    if ts_ms is None:
+        if stats is not None:
+            stats["missing_timestamp"] = stats.get("missing_timestamp", 0) + 1
+        return None
+
+    # Fall back through null/empty req_data.model, then row["model"],
+    # before giving up on "unknown". `dict.get("model", default)` does NOT
+    # apply `default` when the key is present with an explicit null, so
+    # that case must be handled separately.
+    model = req_data.get("model") or row["model"] or "unknown"
     # Derive provider from first path segment for qualified IDs
     # (e.g. "deepseek-ai/deepseek-v4-flash" → "deepseek-ai"),
     # otherwise pass through the DB value.
@@ -151,11 +205,13 @@ def run():
     ensure_bridge_dir()
 
     seen_ids: set[str] = set()
-    all_rows: list[sqlite3.Row] = []
+    messages_by_date: dict[str, list] = {}
+    stats = {"missing_timestamp": 0}
 
     for db_path in dbs:
-        conn = sqlite3.connect(db_path)
-        conn.row_factory = sqlite3.Row
+        conn = open_readonly_db(db_path)
+        if conn is None:
+            continue
         cursor = conn.execute(
             """
             SELECT id, timestamp, provider, model, connectionId, data
@@ -165,17 +221,23 @@ def run():
             """
         )
         for row in cursor:
-            if row["id"] not in seen_ids:
-                seen_ids.add(row["id"])
-                all_rows.append(row)
+            if row["id"] in seen_ids:
+                continue
+            # Row IDs are only added to seen_ids AFTER a successful
+            # conversion, so an invalid row in the current DB doesn't
+            # suppress a valid copy of the same ID from an older backup.
+            result = convert_row_to_entry(row, stats)
+            if result is None:
+                continue
+            seen_ids.add(row["id"])
+            messages_by_date.setdefault(result["date_str"], []).append(result["entry"])
         conn.close()
 
-    messages_by_date: dict[str, list] = {}
-    for row in all_rows:
-        result = convert_row_to_entry(row)
-        if result is None:
-            continue
-        messages_by_date.setdefault(result["date_str"], []).append(result["entry"])
+    if stats["missing_timestamp"]:
+        print(
+            f"Warning: skipped {stats['missing_timestamp']} row(s) with "
+            "missing/unparseable timestamps"
+        )
 
     total_entries = 0
     for date_str, entries in sorted(messages_by_date.items()):

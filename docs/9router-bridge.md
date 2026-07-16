@@ -11,11 +11,27 @@ tokscale's analytics, graph, and cost estimation for 9Router API calls.
 
 ## Setup
 
-### 1. Copy custom pricing
+### 1. Merge custom pricing
+
+> **Warning:** Do not `cp` this file over `~/.config/tokscale/custom-pricing.json`
+> — if you already have overrides there, a plain copy silently destroys them.
+> Merge the 9Router entries in instead. If the file doesn't exist yet, this
+> also handles creating it.
 
 ```bash
-cp scripts/9router_custom_pricing.json ~/.config/tokscale/custom-pricing.json
+mkdir -p ~/.config/tokscale
+if [ -f ~/.config/tokscale/custom-pricing.json ]; then
+  jq -s '.[0].models += .[1].models | .[0]' \
+    ~/.config/tokscale/custom-pricing.json scripts/9router_custom_pricing.json \
+    > ~/.config/tokscale/custom-pricing.json.tmp \
+  && mv ~/.config/tokscale/custom-pricing.json.tmp ~/.config/tokscale/custom-pricing.json
+else
+  cp scripts/9router_custom_pricing.json ~/.config/tokscale/custom-pricing.json
+fi
 ```
+
+Alternatively, open `~/.config/tokscale/custom-pricing.json` and manually
+append the entries from `scripts/9router_custom_pricing.json`'s `models` key.
 
 ### 2. Configure tokscale scanner
 

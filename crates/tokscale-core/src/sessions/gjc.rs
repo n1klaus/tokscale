@@ -232,7 +232,11 @@ pub fn parse_gjc_file(path: &Path) -> Vec<UnifiedMessage> {
             None => derive_dedup_key(&session, timestamp, &model, &provider, &tokens, trimmed),
         };
 
-        let client = message.source.as_deref().filter(|s| !s.trim().is_empty()).unwrap_or("gjc");
+        let client = message
+            .source
+            .as_deref()
+            .filter(|s| !s.trim().is_empty())
+            .unwrap_or("gjc");
         let mut unified = UnifiedMessage::new_with_dedup(
             client,
             model,

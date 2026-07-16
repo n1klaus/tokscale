@@ -3687,9 +3687,9 @@ mod tests {
         filter_messages_for_report, generate_graph_with_loaded_pricing, message_cache,
         normalize_model_for_grouping, parse_all_messages_with_pricing,
         parse_all_messages_with_pricing_with_env_strategy, parse_local_clients, parsed_to_unified,
-        pricing, retain_for_requested_clients, scanner, select_local_parse_pricing, unified_to_parsed,
-        ClientId, GroupBy, LocalParseOptions, ReportOptions, TokenBreakdown, UnifiedMessage,
-        UNKNOWN_WORKSPACE_LABEL,
+        pricing, retain_for_requested_clients, scanner, select_local_parse_pricing,
+        unified_to_parsed, ClientId, GroupBy, LocalParseOptions, ReportOptions, TokenBreakdown,
+        UnifiedMessage, UNKNOWN_WORKSPACE_LABEL,
     };
     use std::collections::{HashMap, HashSet};
     use std::io::Write;
@@ -8605,5 +8605,4 @@ mod tests {
         let filtered = filter_messages_for_report(messages, &ReportOptions::default());
         assert_eq!(filtered.len(), 2);
     }
-
 }

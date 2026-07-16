@@ -1,6 +1,5 @@
 [Unit]
 Description=9Router → tokscale gjc bridge (materialize today's usage)
-Wants=9router-tokscale-bridge.timer
 
 [Service]
 Type=oneshot
