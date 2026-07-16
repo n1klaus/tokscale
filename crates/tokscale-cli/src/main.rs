@@ -6452,24 +6452,35 @@ mod tests {
         // sessions to re-attribute messages to a different bucket. The
         // pre-refactor default was "every ClientId, include_synthetic =
         // false"; default_set() must preserve that contract.
+        //
+        // NineRouter is likewise excluded: it's a CLI-level alias filter
+        // for Gjc (`--client 9router` round-trips to `ClientId::Gjc`, see
+        // test_client_filter_nine_router_round_trip), not a distinct
+        // scannable client. Including it in the default set alongside Gjc
+        // would not add coverage — it would just be a second name for the
+        // same scan root.
         let default = ClientFilter::default_set();
         assert!(
             !default.contains(&ClientFilter::Synthetic),
             "default_set() must NOT include Synthetic — it is opt-in only"
         );
-        // Every real client must be present so first-launch reports cover
-        // every integration the binary knows about.
+        assert!(
+            !default.contains(&ClientFilter::NineRouter),
+            "default_set() must NOT include NineRouter — it is a Gjc alias, not a distinct client"
+        );
+        // Every real, non-alias client must be present so first-launch
+        // reports cover every integration the binary knows about.
         for filter in ClientFilter::value_variants() {
-            if matches!(filter, ClientFilter::Synthetic) {
+            if matches!(filter, ClientFilter::Synthetic | ClientFilter::NineRouter) {
                 continue;
             }
             assert!(default.contains(filter), "default_set() missing {filter:?}");
         }
-        // Size sanity: every variant minus Synthetic.
+        // Size sanity: every variant minus Synthetic and the NineRouter alias.
         assert_eq!(
             default.len(),
-            ClientFilter::value_variants().len() - 1,
-            "default_set() size drifted from value_variants() - 1"
+            ClientFilter::value_variants().len() - 2,
+            "default_set() size drifted from value_variants() - 2"
         );
     }
 
