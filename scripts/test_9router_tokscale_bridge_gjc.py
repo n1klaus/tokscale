@@ -358,6 +358,65 @@ def test_convert_row_to_entry_stamps_9router_source():
     assert result["entry"]["message"]["source"] == "9router"
 
 
+# ── free-variant cost embed: free models pin $0.00, paid models reprice ─────
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "kimi-k2.5-free",
+        "openrouter/kimi-k2.5-free",
+        "moonshotai/kimi-k2.5:free",
+        "KIMI-K2.5-FREE",  # case-insensitive suffix match
+        "gpt-oss-120b:FREE",
+    ],
+)
+def test_convert_row_to_entry_free_model_embeds_zero_cost(model):
+    # Tokscale's pricing lookup strips the "-free" suffix, so an omitted
+    # cost would reprice the free variant at the PAID base-model rate.
+    # Free rows must carry an authoritative $0.00 (cost.total present ⇒
+    # CostSource::ProviderReported ⇒ no repricing), tokens still counted.
+    row = make_row(model=model, data=json.dumps({
+        "model": model,
+        "tokens": {"prompt_tokens": 100, "completion_tokens": 50},
+    }))
+    result = bridge.convert_row_to_entry(row)
+    assert result is not None
+    usage = result["entry"]["message"]["usage"]
+    assert usage["cost"] == {"total": 0.0}
+    assert usage["totalTokens"] == 150
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "gpt-4o",
+        "kimi-k2.5",  # paid base model of a free variant
+        "freedom-model",  # "free" substring but not a suffix
+        "gpt-4o-freestyle",
+    ],
+)
+def test_convert_row_to_entry_paid_model_omits_cost(model):
+    # Paid rows must NOT carry usage.cost — any present cost.total (even
+    # 0.0) is authoritative and would block repricing from tokens.
+    row = make_row(model=model, data=json.dumps({
+        "model": model,
+        "tokens": {"prompt_tokens": 100, "completion_tokens": 50},
+    }))
+    result = bridge.convert_row_to_entry(row)
+    assert result is not None
+    assert "cost" not in result["entry"]["message"]["usage"]
+
+
+def test_is_free_model_suffix_rules():
+    assert bridge.is_free_model("kimi-k2.5-free")
+    assert bridge.is_free_model("gpt-oss-120b:free")
+    assert bridge.is_free_model("Kimi-K2.5-Free")
+    assert not bridge.is_free_model("kimi-k2.5")
+    assert not bridge.is_free_model("free-model")
+    assert not bridge.is_free_model("model-freeform")
+
+
 # ── atomic write cleans up its .tmp file on failure ─────────────────────────
 
 

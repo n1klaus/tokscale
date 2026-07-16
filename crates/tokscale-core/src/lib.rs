@@ -163,8 +163,11 @@ fn retain_for_requested_clients(
 ) -> bool {
     requested.contains(client)
         || (requested.contains("claude") && client.starts_with("cc-mirror/"))
+        // "gjc" is a superset request: 9Router bridge data IS gjc-format, so
+        // requesting gjc retains 9router-stamped messages too. The reverse is
+        // intentionally NOT true — `--client 9router` must retain only
+        // 9router-stamped messages, not native gjc ones.
         || (requested.contains("gjc") && client.eq_ignore_ascii_case("9router"))
-        || (requested.contains("9router") && client.eq_ignore_ascii_case("gjc"))
         || (requested.contains("synthetic")
             && sessions::synthetic::matches_synthetic_filter(client, model_id, provider_id))
 }
@@ -8547,18 +8550,27 @@ mod tests {
         assert!(dates.contains(&local_date(ledger_timestamp)));
     }
     #[test]
-    fn test_retain_for_requested_clients_aliases_9router_and_gjc() {
+    fn test_retain_for_requested_clients_gjc_superset_of_9router() {
         let gjc_requested: HashSet<&str> = HashSet::from(["gjc"]);
-        // Bridge messages carry client="9router"; default filter requests "gjc".
+        // Bridge messages carry client="9router"; requesting "gjc" retains
+        // them (9router data IS gjc-format, so gjc is a superset request).
         assert!(retain_for_requested_clients(
             "9router",
             "deepseek-ai/deepseek-v4-flash",
             "nvidia",
             &gjc_requested
         ));
-        // Real gjc messages carry client="gjc"; --client 9router requests "9router".
+        // --client 9router retains bridge-stamped messages…
         let ninerouter_requested: HashSet<&str> = HashSet::from(["9router"]);
         assert!(retain_for_requested_clients(
+            "9router",
+            "deepseek-ai/deepseek-v4-flash",
+            "nvidia",
+            &ninerouter_requested
+        ));
+        // …but must NOT retain native gjc messages: the alias is one-way
+        // (gjc is the superset request, 9router is the narrow one).
+        assert!(!retain_for_requested_clients(
             "gjc",
             "claude-sonnet-4",
             "anthropic",

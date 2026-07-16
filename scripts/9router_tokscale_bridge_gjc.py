@@ -11,10 +11,17 @@ Usage:
 Then add to ~/.config/tokscale/settings.json:
     {"scanner": {"extraScanPaths": {"gjc": ["/home/USER/.local/share/9router-tokscale/sessions"]}}}
 
-CRITICAL: Do NOT emit usage.cost.total in the JSONL output. The gjc parser
-treats any present cost.total (even 0.0) as CostSource::ProviderReported,
-which prevents tokscale from repricing via its pricing database. Omitting
-the cost field lets tokscale reprice from tokens + pricing data.
+CRITICAL cost policy: for PAID models, do NOT emit usage.cost in the JSONL
+output. The gjc parser treats any present cost.total (even 0.0) as
+CostSource::ProviderReported, which prevents tokscale from repricing via its
+pricing database. Omitting the cost field lets tokscale reprice from
+tokens + pricing data.
+
+For FREE-tier models (ids ending in "-free" or ":free"), the bridge embeds
+"cost": {"total": 0.0} on purpose: tokscale's pricing lookup strips the
+"-free" suffix, so an omitted cost would reprice e.g. kimi-k2.5-free at the
+PAID kimi-k2.5 rate. The authoritative $0.00 pins free usage at zero cost
+while tokens still count.
 
 See docs/9router-bridge.md for full documentation.
 """
@@ -120,6 +127,16 @@ def compute_token_buckets(tokens: dict) -> tuple[int, int, int, int]:
     total = input_tokens + cached + completion
     return input_tokens, cached, completion, total
 
+def is_free_model(model: str) -> bool:
+    """Return True for free-tier model ids (ending in "-free" or ":free").
+
+    Tokscale's pricing lookup strips the "-free" suffix before matching, so
+    a free variant left without an embedded cost would be repriced at the
+    PAID base-model rate. Free rows therefore embed an authoritative $0.00.
+    """
+    lowered = model.lower()
+    return lowered.endswith("-free") or lowered.endswith(":free")
+
 def convert_row_to_entry(row, stats: dict | None = None) -> dict | None:
     """Convert a single `requestDetails` DB row into a gjc-format entry.
 
@@ -183,6 +200,11 @@ def convert_row_to_entry(row, stats: dict | None = None) -> dict | None:
             "totalTokens": total,
         },
     }
+    # Paid models omit usage.cost so tokscale reprices from tokens + pricing
+    # data. Free variants embed an authoritative $0.00: the pricing lookup
+    # strips "-free", so omitting cost would bill them at the paid rate.
+    if is_free_model(model):
+        msg["usage"]["cost"] = {"total": 0.0}
     if provider:
         msg["provider"] = provider
         msg["api"] = provider
