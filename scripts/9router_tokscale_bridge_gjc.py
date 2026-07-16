@@ -61,6 +61,87 @@ def parse_iso_timestamp(ts: str) -> int:
     except Exception:
         return int(datetime.now(timezone.utc).timestamp() * 1000)
 
+def compute_token_buckets(tokens: dict) -> tuple[int, int, int, int]:
+    """Split OpenAI-style token counts into non-overlapping buckets.
+
+    OpenAI's `prompt_tokens` already includes `cached_tokens`, so the
+    non-cached input bucket is `max(prompt - cached, 0)` (clamped so a
+    `cached_tokens` value larger than `prompt_tokens` never goes negative).
+
+    Returns (input_tokens, cached, completion, total).
+    """
+    prompt = tokens.get("prompt_tokens", 0) or 0
+    completion = tokens.get("completion_tokens", 0) or 0
+    cached = tokens.get("cached_tokens", 0) or 0
+
+    input_tokens = max(prompt - cached, 0)
+    total = input_tokens + cached + completion
+    return input_tokens, cached, completion, total
+
+def convert_row_to_entry(row) -> dict | None:
+    """Convert a single `requestDetails` DB row into a gjc-format entry.
+
+    Returns None when the row should be skipped: malformed/NULL `data`
+    JSON, a non-dict `tokens` field, or zero prompt and completion tokens.
+    """
+    try:
+        req_data = json.loads(row["data"])
+        if not isinstance(req_data, dict):
+            print(f"  Skipping row {row['id']}: data is not an object")
+            return None
+    except (json.JSONDecodeError, TypeError):
+        print(f"  Skipping row {row['id']}: malformed data column")
+        return None
+
+    tokens = req_data.get("tokens") or {}
+    if not isinstance(tokens, dict):
+        print(f"  Skipping row {row['id']}: tokens is not an object")
+        return None
+
+    input_tokens, cached, completion, total = compute_token_buckets(tokens)
+    prompt = tokens.get("prompt_tokens", 0) or 0
+
+    if prompt == 0 and completion == 0:
+        return None
+
+    ts_ms = parse_iso_timestamp(row["timestamp"])
+    model = req_data.get("model", row["model"]) or "unknown"
+    # Derive provider from first path segment for qualified IDs
+    # (e.g. "deepseek-ai/deepseek-v4-flash" → "deepseek-ai"),
+    # otherwise pass through the DB value.
+    provider = row["provider"] or None
+    if not provider and "/" in model:
+        provider = model.split("/", 1)[0].lstrip("@")
+    # Use local timezone (not UTC) so bridge file dates align with
+    # tokscale --today / --since/--until, which use chrono::Local.
+    date_str = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).astimezone().strftime("%Y-%m-%d")
+
+    msg = {
+        "role": "assistant",
+        "model": model,
+        "source": "9router",
+        "timestamp": ts_ms,
+        "usage": {
+            "input": input_tokens,
+            "output": completion,
+            "cacheRead": cached,
+            "cacheWrite": 0,
+            "totalTokens": total,
+        },
+    }
+    if provider:
+        msg["provider"] = provider
+        msg["api"] = provider
+
+    return {
+        "date_str": date_str,
+        "entry": {
+            "type": "message",
+            "id": row["id"],
+            "message": msg,
+        },
+    }
+
 def run():
     dbs = discover_router_dbs()
     if not dbs:
@@ -91,90 +172,36 @@ def run():
 
     messages_by_date: dict[str, list] = {}
     for row in all_rows:
-        try:
-            req_data = json.loads(row["data"])
-            if not isinstance(req_data, dict):
-                print(f"  Skipping row {row['id']}: data is not an object")
-                continue
-        except (json.JSONDecodeError, TypeError):
-            print(f"  Skipping row {row['id']}: malformed data column")
+        result = convert_row_to_entry(row)
+        if result is None:
             continue
-        tokens = req_data.get("tokens") or {}
-        if not isinstance(tokens, dict):
-            print(f"  Skipping row {row['id']}: tokens is not an object")
-            continue
-
-        prompt = tokens.get("prompt_tokens", 0) or 0
-        completion = tokens.get("completion_tokens", 0) or 0
-        cached = tokens.get("cached_tokens", 0) or 0
-
-        # OpenAI prompt_tokens already includes cached tokens. Subtract
-        # to get non-overlapping buckets: input (non-cached prompt) +
-        # cacheRead (cached prompt) + output (completion).
-        input_tokens = max(prompt - cached, 0)
-
-        if prompt == 0 and completion == 0:
-            continue
-
-        ts_ms = parse_iso_timestamp(row["timestamp"])
-        model = req_data.get("model", row["model"]) or "unknown"
-        # Derive provider from first path segment for qualified IDs
-        # (e.g. "deepseek-ai/deepseek-v4-flash" → "deepseek-ai"),
-        # otherwise pass through the DB value.
-        provider = row["provider"] or None
-        if not provider and "/" in model:
-            provider = model.split("/", 1)[0].lstrip("@")
-        # Use local timezone (not UTC) so bridge file dates align with
-        # tokscale --today / --since/--until, which use chrono::Local.
-        date_str = datetime.fromtimestamp(ts_ms / 1000, tz=timezone.utc).astimezone().strftime("%Y-%m-%d")
-
-        total = input_tokens + cached + completion
-
-        msg = {
-            "role": "assistant",
-            "model": model,
-            "source": "9router",
-            "timestamp": ts_ms,
-            "usage": {
-                "input": input_tokens,
-                "output": completion,
-                "cacheRead": cached,
-                "cacheWrite": 0,
-                "totalTokens": total,
-            },
-        }
-        if provider:
-            msg["provider"] = provider
-            msg["api"] = provider
-
-        entry = {
-            "type": "message",
-            "id": row["id"],
-            "message": msg,
-        }
-
-        messages_by_date.setdefault(date_str, []).append(entry)
+        messages_by_date.setdefault(result["date_str"], []).append(result["entry"])
 
     total_entries = 0
     for date_str, entries in sorted(messages_by_date.items()):
         filepath = BRIDGE_DIR / f"9router-{date_str}.jsonl"
-        with tempfile.NamedTemporaryFile(mode="w", dir=str(BRIDGE_DIR), delete=False, suffix=".tmp") as tmp:
-            f = tmp
-            tmppath = tmp.name
-            session_header = {
-                "type": "session",
-                "id": f"9router-{date_str}",
-                "timestamp": datetime.fromtimestamp(
-                    entries[0]["message"]["timestamp"] / 1000,
-                    tz=timezone.utc,
-                ).isoformat(),
-                "cwd": "/"
-            }
-            f.write(json.dumps(session_header) + "\n")
-            for entry in entries:
-                f.write(json.dumps(entry) + "\n")
-                total_entries += 1
-        os.replace(tmppath, filepath)
+        tmppath = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", dir=str(BRIDGE_DIR), delete=False, suffix=".tmp") as tmp:
+                tmppath = tmp.name
+                session_header = {
+                    "type": "session",
+                    "id": f"9router-{date_str}",
+                    "timestamp": datetime.fromtimestamp(
+                        entries[0]["message"]["timestamp"] / 1000,
+                        tz=timezone.utc,
+                    ).isoformat(),
+                    "cwd": "/"
+                }
+                tmp.write(json.dumps(session_header) + "\n")
+                for entry in entries:
+                    tmp.write(json.dumps(entry) + "\n")
+                    total_entries += 1
+            os.replace(tmppath, filepath)
+        except Exception:
+            if tmppath and os.path.exists(tmppath):
+                os.unlink(tmppath)
+            raise
 
     print(f"Bridge files written to: {BRIDGE_DIR}")
     print(f"Files: {len(messages_by_date)}, Messages: {total_entries}")

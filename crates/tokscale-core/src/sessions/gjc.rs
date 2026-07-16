@@ -558,6 +558,30 @@ not valid json at all
         );
     }
 
+    /// (j) `source` field override: a non-empty `source` (e.g. "9router")
+    ///     stamps the client id instead of the default "gjc".
+    #[test]
+    fn test_source_field_overrides_client_id() {
+        let content = r#"{"type":"session","id":"9router-2026-01-01","cwd":"/tmp"}
+{"type":"message","id":"msg_src","message":{"role":"assistant","model":"m","provider":"p","source":"9router","timestamp":1700000001000,"usage":{"input":10,"output":5,"cost":{"total":0.02}}}}"#;
+        let file = create_test_file(content);
+        let messages = parse_gjc_file(file.path());
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].client, "9router");
+    }
+
+    /// (k) A blank/whitespace-only `source` falls back to the default "gjc"
+    ///     client id, guarding the `.filter(|s| !s.trim().is_empty())` check.
+    #[test]
+    fn test_blank_source_field_falls_back_to_gjc() {
+        let content = r#"{"type":"session","id":"gjc_ses_blank_src","cwd":"/tmp"}
+{"type":"message","id":"msg_blank_src","message":{"role":"assistant","model":"m","provider":"p","source":"   ","timestamp":1700000001000,"usage":{"input":10,"output":5,"cost":{"total":0.02}}}}"#;
+        let file = create_test_file(content);
+        let messages = parse_gjc_file(file.path());
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].client, "gjc");
+    }
+
     /// (i) Unicode / percent-encoded cwd in the session header normalizes
     ///     without panicking, and workspace_key/label are populated.
     #[test]

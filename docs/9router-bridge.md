@@ -106,7 +106,10 @@ file only covers paid models. Free models correctly show `$0.00` cost.
 ## Known Limitations
 
 - Ollama models are omitted when the upstream API returns no usage metadata
-- Bridge regenerates all files on each run (full refresh)
+- Bridge only rewrites the per-date files that have rows in the current DB
+  scan; date files with no matching rows on a run are left untouched, so
+  stale date files can linger if the underlying data disappears (e.g. after
+  a DB is pruned or replaced)
 
 ## Automation
 
