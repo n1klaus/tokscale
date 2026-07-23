@@ -57,6 +57,17 @@ jobs:
             build: cargo zigbuild --release -p tokscale-cli --target aarch64-unknown-linux-musl
             strip: ""
             bin_name: tokscale
+          # Android (Termux) on aarch64. Requires the Android NDK cross
+          # toolchain (Bionic libc) — zigbuild does not apply here.
+          # taiki-e/setup-cross-toolchain-action handles NDK setup
+          # automatically for `aarch64-linux-android` (Clang 14, API 21
+          # by default) and wires the CC/AR env vars so `cargo build
+          # --target aarch64-linux-android` links against Bionic.
+          - host: ubuntu-latest
+            target: aarch64-linux-android
+            build: cargo build --release -p tokscale-cli --target aarch64-linux-android
+            strip: ""
+            bin_name: tokscale
           - host: windows-latest
             target: x86_64-pc-windows-msvc
             build: cargo build --release -p tokscale-cli --target x86_64-pc-windows-msvc
@@ -91,17 +102,23 @@ jobs:
           key: cli-${{ matrix.settings.target }}-cargo-${{ matrix.settings.host }}-${{ hashFiles('Cargo.lock') }}
 
       - uses: mlugg/setup-zig@v2
-        if: ${{ contains(matrix.settings.target, 'linux') }}
+        if: ${{ contains(matrix.settings.target, 'linux') && !contains(matrix.settings.target, 'android') }}
         with:
           version: 0.13.0
 
       - name: Install cargo-zigbuild
         uses: taiki-e/install-action@v2
-        if: ${{ contains(matrix.settings.target, 'linux') }}
+        if: ${{ contains(matrix.settings.target, 'linux') && !contains(matrix.settings.target, 'android') }}
         env:
           GITHUB_TOKEN: ${{ github.token }}
         with:
           tool: cargo-zigbuild
+
+      - name: Setup Android cross toolchain
+        if: ${{ matrix.settings.target == 'aarch64-linux-android' }}
+        uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: aarch64-linux-android
 
       - name: Build CLI binary
         run: ${{ matrix.settings.build }}
