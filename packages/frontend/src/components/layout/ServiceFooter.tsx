@@ -18,6 +18,9 @@ export function ServiceFooter() {
           >
             Source
           </a>
+          <Link href="/privacy">Privacy</Link>
+          <Link href="/terms">Terms</Link>
+          <Link href="/contact">Contact</Link>
         </Links>
       </Inner>
     </Footer>

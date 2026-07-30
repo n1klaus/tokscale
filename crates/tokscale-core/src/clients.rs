@@ -550,6 +550,22 @@ define_clients!(
         headless: false,
         parse_local: true,
         submit_default: true
+    },
+    // Senpi (OmO Native) is a pi-mono descendant and writes the same session
+    // JSONL under `<agent dir>/sessions/<encoded-cwd>/*.jsonl`. The agent dir
+    // honors `SENPI_CODING_AGENT_DIR` and otherwise defaults to `~/.senpi/agent`,
+    // mirroring the `gjc` layout.
+    Senpi = 39 => {
+        id: "senpi",
+        root: PathRoot::EnvVar {
+            var: "SENPI_CODING_AGENT_DIR",
+            fallback_relative: ".senpi/agent",
+        },
+        relative: "sessions",
+        pattern: "*.jsonl",
+        headless: false,
+        parse_local: true,
+        submit_default: true
     }
 );
 
@@ -602,7 +618,47 @@ mod tests {
 
     #[test]
     fn test_client_id_count() {
-        assert_eq!(ClientId::COUNT, 39);
+        assert_eq!(ClientId::COUNT, 40);
+    }
+
+    #[test]
+    fn test_senpi_client_registered_as_local_session_source() {
+        let client = ClientId::from_str("senpi").expect("senpi client should be registered");
+        assert_eq!(client.data().relative_path, "sessions");
+        assert_eq!(client.data().pattern, "*.jsonl");
+        assert!(client.data().parse_local);
+        assert!(client.data().submit_default);
+        assert!(!client.data().headless);
+    }
+
+    #[test]
+    fn test_senpi_defaults_to_home_agent_dir_without_env_override() {
+        let _guard = env_lock().lock().unwrap();
+        let previous = std::env::var("SENPI_CODING_AGENT_DIR").ok();
+        unsafe { std::env::remove_var("SENPI_CODING_AGENT_DIR") };
+
+        let client = ClientId::from_str("senpi").expect("senpi client should be registered");
+        assert_eq!(
+            client.data().resolve_path("/tmp/home"),
+            "/tmp/home/.senpi/agent/sessions"
+        );
+
+        restore_env("SENPI_CODING_AGENT_DIR", previous);
+    }
+
+    #[test]
+    fn test_senpi_honors_agent_dir_env_override() {
+        let _guard = env_lock().lock().unwrap();
+        let previous = std::env::var("SENPI_CODING_AGENT_DIR").ok();
+        unsafe { std::env::set_var("SENPI_CODING_AGENT_DIR", "/custom/senpi-agent") };
+
+        let client = ClientId::from_str("senpi").expect("senpi client should be registered");
+        assert_eq!(
+            client.data().resolve_path("/tmp/home"),
+            "/custom/senpi-agent/sessions"
+        );
+
+        restore_env("SENPI_CODING_AGENT_DIR", previous);
     }
 
     #[test]

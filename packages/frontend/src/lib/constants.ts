@@ -68,6 +68,7 @@ export const SOURCE_DISPLAY_NAMES: Record<ClientType, string> = {
   workbuddy: "WorkBuddy",
   "devin-cli": "Devin CLI",
   "devin-desktop": "Devin Desktop",
+  senpi: "Senpi (OmO Native)",
 };
 
 // Client logos from GitHub CDN (public repo)
@@ -119,6 +120,7 @@ export const SOURCE_LOGOS: Record<ClientType, string> = {
     "https://static.workbuddy.cn/web/agents/008054d6beaaf4a83e2d049e982e1244560726dc/assets/share-logo.png",
   "devin-cli": `${GITHUB_CDN_BASE}/client-devin.jpg`,
   "devin-desktop": `${GITHUB_CDN_BASE}/client-devin.jpg`,
+  senpi: `${GITHUB_CDN_BASE}/client-senpi.png`,
 };
 
 export const SOURCE_COLORS: Record<ClientType, string> = {
@@ -163,6 +165,7 @@ export const SOURCE_COLORS: Record<ClientType, string> = {
   workbuddy: "#2563EB",
   "devin-cli": "#334155",
   "devin-desktop": "#334155",
+  senpi: "#2F6F63",
 };
 
 // Derived values

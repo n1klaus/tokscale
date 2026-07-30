@@ -3,6 +3,7 @@ import { notFound, permanentRedirect } from 'next/navigation';
 import type { ProfileDevice } from '@/components/profile';
 import { loadPublicProfileDevicesForPage } from '@/lib/publicProfileDevices';
 import { loadPublicProfileForPage } from '@/lib/publicProfileData';
+import { profileUrl } from '@/lib/seo/urls';
 import ProfilePageClient, { type ProfileData } from './ProfilePageClient';
 
 export const revalidate = 60;
@@ -59,25 +60,27 @@ export async function generateMetadata({ params }: { params: Promise<{ username:
   return {
     title: `@${username} - Token Usage | Tokscale`,
     description: `View ${username}'s AI token usage statistics and cost breakdown on Tokscale`,
+    // ?period=all|week|month all render this same profile over a different
+    // window, so they consolidate onto the bare URL. Safe to build from the
+    // request param: a non-canonical casing permanent-redirects below rather
+    // than rendering, so this only ever runs for the canonical spelling.
+    alternates: {
+      canonical: profileUrl(username),
+    },
+    // No `images` on either block: opengraph-image.tsx in this directory
+    // supplies a card rendered from this user's real numbers. Setting an
+    // explicit images array here would override it with the generic
+    // site-wide PNG, which is what every profile used to share.
     openGraph: {
       title: `@${username}'s Token Usage | Tokscale`,
       description: `AI token usage statistics for ${username} on Tokscale`,
       type: 'profile',
-      url: `https://tokscale.ai/u/${username}`,
+      url: profileUrl(username),
       siteName: 'Tokscale',
-      images: [
-        {
-          url: 'https://tokscale.ai/og-image.png',
-          width: 1200,
-          height: 630,
-          alt: `${username}'s Token Usage on Tokscale`,
-        },
-      ],
     },
     twitter: {
       card: 'summary_large_image',
       title: `@${username}'s Token Usage | Tokscale`,
-      images: ['https://tokscale.ai/og-image.png'],
     },
   };
 }

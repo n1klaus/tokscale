@@ -4,6 +4,9 @@
 //! via the `pi` client's OMP scan root, `~/.omp/agent/sessions/...`). Current
 //! OMP builds write a `title` metadata record before the `session` header in
 //! newly-created session files; see [`PRE_SESSION_METADATA_TYPES`].
+//!
+//! Pi descendants reuse this record layout verbatim, so [`parse_pi_format_file`]
+//! is shared: see `sessions::senpi` for Senpi (OmO Native).
 
 use super::utils::file_modified_timestamp_ms;
 use super::{normalize_workspace_key, workspace_label_from_key, UnifiedMessage};
@@ -71,6 +74,10 @@ pub struct PiUsage {
     pub cache_write: Option<i64>,
     #[allow(dead_code)]
     pub total_tokens: Option<i64>,
+    /// Parsed so the omission below is a real decision rather than an accident
+    /// of the schema, but never summed: see the note at the emit site.
+    #[allow(dead_code)]
+    pub reasoning: Option<i64>,
 }
 
 fn is_generated_id(value: &str) -> bool {
@@ -113,6 +120,19 @@ fn pi_subagent_name(session_name: &str) -> Option<String> {
 
 /// Parse a Pi JSONL session file
 pub fn parse_pi_file(path: &Path) -> Vec<UnifiedMessage> {
+    parse_pi_format_file(path, "pi", "pi")
+}
+
+/// Parse a JSONL session file written in the Pi record format.
+///
+/// `client` is the tokscale client id stamped on every emitted message, and
+/// `fallback_provider` is used only when the message carries no provider and
+/// the model name is not recognizable.
+pub(crate) fn parse_pi_format_file(
+    path: &Path,
+    client: &str,
+    fallback_provider: &'static str,
+) -> Vec<UnifiedMessage> {
     let file = match std::fs::File::open(path) {
         Ok(f) => f,
         Err(_) => return Vec::new(),
@@ -210,7 +230,7 @@ pub fn parse_pi_file(path: &Path) -> Vec<UnifiedMessage> {
         let provider = match message.provider {
             Some(p) if !p.is_empty() => p,
             _ => inferred_provider_from_model(&model)
-                .unwrap_or("pi")
+                .unwrap_or(fallback_provider)
                 .to_string(),
         };
 
@@ -220,8 +240,13 @@ pub fn parse_pi_file(path: &Path) -> Vec<UnifiedMessage> {
             .map(|dt| dt.timestamp_millis())
             .unwrap_or(fallback_timestamp);
 
+        // `usage.reasoning` is read but deliberately not mapped onto
+        // `TokenBreakdown::reasoning`. In the Pi format reasoning tokens are a
+        // subset of `output` (Pi's own `totalTokens` excludes them), whereas
+        // tokscale totals `reasoning` as its own additive bucket. Mapping it
+        // through would double count.
         let mut unified = UnifiedMessage::new_with_agent(
-            "pi",
+            client,
             model,
             provider,
             session_id.clone().unwrap_or_else(|| "unknown".to_string()),

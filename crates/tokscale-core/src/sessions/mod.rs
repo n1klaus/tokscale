@@ -37,6 +37,7 @@ pub mod opencodereview;
 pub mod pi;
 pub mod qwen;
 pub mod roocode;
+pub mod senpi;
 pub mod synthetic;
 pub(crate) mod tencent_buddy;
 pub mod trae;

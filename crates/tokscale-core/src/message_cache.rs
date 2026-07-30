@@ -846,8 +846,14 @@ fn parser_version(client: ClientId) -> u32 {
         ClientId::Zcode => 3,
         // opencodereview's llm_response timestamp is now back-calculated to
         // the call start (timestamp - duration_ms) instead of the recorded
-        // (end-anchored) timestamp. Follow-up to #890.
-        ClientId::OpenCodeReview => 2,
+        // (end-anchored) timestamp. Follow-up to #890. v2->v3: records without
+        // their own `timestamp` now carry a line-number discriminator in the
+        // dedup key, so distinct calls sharing a model and token counts no
+        // longer collapse into one under the shared file-mtime fallback.
+        // Both bumps are precautionary rather than corrective: opencodereview
+        // is parsed only by parse_local_clients, which does not go through
+        // this cache, so no entry has ever been written under this namespace.
+        ClientId::OpenCodeReview => 3,
         // Kiro's structured messages.jsonl turns now back-calculate the
         // start anchor from `turn_end - elapsedTime` when the user prompt's
         // own timestamp is missing/unparseable, instead of falling through
@@ -856,7 +862,10 @@ fn parser_version(client: ClientId) -> u32 {
         ClientId::Kiro => 2,
         // Kimi v2 checks token buckets without an overflowing sum. v2->v3:
         // symbolic usage-record models now resolve from the latest llm.request.
-        ClientId::Kimi => 3,
+        // v3->v4: non-positive wire timestamps (kimi-cli `timestamp`,
+        // kimi-code `time`) now fall back to the file mtime instead of
+        // anchoring the message in a pre-epoch bucket.
+        ClientId::Kimi => 4,
         // v1->v2: per-model token attribution now comes from
         // session_model_usage instead of crediting the whole session to
         // sessions.model, and dedup keys are namespaced per (session, model).
@@ -2088,13 +2097,13 @@ mod tests {
         assert_eq!(parser_version(ClientId::Jcode), 7);
         assert_eq!(parser_version(ClientId::DevinCli), 3);
         assert_eq!(parser_version(ClientId::Zcode), 3);
-        assert_eq!(parser_version(ClientId::OpenCodeReview), 2);
+        assert_eq!(parser_version(ClientId::OpenCodeReview), 3);
         assert_eq!(parser_version(ClientId::Kiro), 2);
     }
 
     #[test]
-    fn test_kimi_parser_version_invalidates_v2_entries() {
-        assert_eq!(parser_version(ClientId::Kimi), 3);
+    fn test_kimi_parser_version_invalidates_v3_entries() {
+        assert_eq!(parser_version(ClientId::Kimi), 4);
     }
 
     #[test]

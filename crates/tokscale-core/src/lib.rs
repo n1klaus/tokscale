@@ -1496,6 +1496,26 @@ fn parse_all_messages_with_pricing_with_env_strategy(
         }
     }
 
+    let senpi_outcomes: Vec<CachedParseOutcome> = scan_result
+        .get(ClientId::Senpi)
+        .par_iter()
+        .map(|path| {
+            load_or_parse_source(
+                message_cache::CacheIdentity::for_client(ClientId::Senpi),
+                path,
+                &source_cache,
+                pricing,
+                sessions::senpi::parse_senpi_file,
+            )
+        })
+        .collect();
+    for outcome in senpi_outcomes {
+        all_messages.extend(outcome.messages);
+        if let Some(entry) = outcome.cache_entry {
+            source_cache.insert(entry);
+        }
+    }
+
     // Command Code does not persist token usage or cost locally, so tokens are
     // estimated and priced. The model id comes from ~/.commandcode/config.json
     // (canonicalized, e.g. "MiniMaxAI/MiniMax-M3-Free" -> "MiniMax-M3"), not the
@@ -3121,6 +3141,20 @@ pub fn parse_local_clients(options: LocalParseOptions) -> Result<ParsedMessages,
     let pi_count = pi_msgs.len() as i32;
     counts.set(ClientId::Pi, pi_count);
     messages.extend(pi_msgs);
+
+    let senpi_msgs: Vec<ParsedMessage> = scan_result
+        .get(ClientId::Senpi)
+        .par_iter()
+        .flat_map(|path| {
+            sessions::senpi::parse_senpi_file(path)
+                .into_iter()
+                .map(|msg| unified_to_parsed(&msg))
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let senpi_count = senpi_msgs.len() as i32;
+    counts.set(ClientId::Senpi, senpi_count);
+    messages.extend(senpi_msgs);
 
     let commandcode_msgs: Vec<ParsedMessage> = scan_result
         .get(ClientId::CommandCode)

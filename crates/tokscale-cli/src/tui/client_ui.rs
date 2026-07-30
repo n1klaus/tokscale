@@ -162,6 +162,14 @@ pub const CLIENT_UI: [ClientUi; ClientId::COUNT] = [
         display_name: "Devin Desktop",
         hotkey: 'E',
     },
+    // Short form on purpose: these names feed the sessions view's Client column
+    // through `get_client_display_name`, and the full "Senpi (OmO Native)" used
+    // in the README, the frontend, and `capitalize_client` is 18 cells against a
+    // 15-cell budget. See `client_column_fits_every_registered_client`.
+    ClientUi {
+        display_name: "Senpi",
+        hotkey: 'S',
+    },
 ];
 
 pub fn display_name(client: ClientId) -> &'static str {
