@@ -61,10 +61,16 @@ struct Membership {
 fn credentials_paths() -> Vec<std::path::PathBuf> {
     let mut paths = Vec::new();
 
-    // 1) kimi-code (supports KIMI_CODE_HOME override)
+    // 1) kimi-code (supports KIMI_CODE_HOME override). A blank export means
+    // unset, matching the scanner: `PathBuf::from("")` makes the credentials
+    // path the relative `credentials/kimi-code.json`, so Kimi drops out of the
+    // table while the CLI probes -- and would read tokens from -- whatever
+    // happens to sit under the current directory.
     let kimi_code_home = std::env::var("KIMI_CODE_HOME")
+        .ok()
+        .filter(|home| !home.trim().is_empty())
         .map(std::path::PathBuf::from)
-        .unwrap_or_else(|_| {
+        .unwrap_or_else(|| {
             dirs::home_dir()
                 .map(|h| h.join(".kimi-code"))
                 .unwrap_or_else(|| std::path::PathBuf::from("."))
@@ -297,4 +303,113 @@ pub fn fetch() -> Result<UsageOutput> {
             spend_control: None,
         })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+
+    /// Restores KIMI_CODE_HOME even if the test unwinds, so one failure cannot
+    /// leak an override into the rest of the suite.
+    struct EnvVarGuard {
+        key: &'static str,
+        previous: Option<std::ffi::OsString>,
+    }
+
+    impl EnvVarGuard {
+        fn set(key: &'static str, value: &str) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe {
+                std::env::set_var(key, value);
+            }
+            Self { key, previous }
+        }
+
+        fn remove(key: &'static str) -> Self {
+            let previous = std::env::var_os(key);
+            unsafe {
+                std::env::remove_var(key);
+            }
+            Self { key, previous }
+        }
+    }
+
+    impl Drop for EnvVarGuard {
+        fn drop(&mut self) {
+            unsafe {
+                match &self.previous {
+                    Some(value) => std::env::set_var(self.key, value),
+                    None => std::env::remove_var(self.key),
+                }
+            }
+        }
+    }
+
+    /// The kimi-code candidate, which `credentials_paths` always lists first.
+    fn kimi_code_candidate() -> std::path::PathBuf {
+        credentials_paths().into_iter().next().unwrap()
+    }
+
+    /// A blank KIMI_CODE_HOME -- how a shell exports an optional variable that
+    /// was never given a value -- means unset. Without this the candidate is
+    /// the relative `credentials/kimi-code.json`, so the real tokens are never
+    /// found and lookup follows the current directory instead.
+    ///
+    /// Compared against the genuinely-unset lookup rather than against a
+    /// rebuilt `<home>/.kimi-code`, so the assertion cannot drift along with
+    /// the fallback it is meant to pin.
+    #[test]
+    #[serial]
+    fn credentials_path_falls_back_when_kimi_code_home_is_blank() {
+        let unset = {
+            let _guard = EnvVarGuard::remove("KIMI_CODE_HOME");
+            kimi_code_candidate()
+        };
+        // Pinning the baseline is what stops this test from passing if the
+        // fallback expression itself changes, but it only holds where a home
+        // directory resolves: with none, `credentials_paths` intentionally
+        // yields the relative `./credentials/kimi-code.json`. Asserting the
+        // `.kimi-code` shape unconditionally would fail on a machine with no
+        // HOME while the code under test behaved exactly as documented.
+        //
+        // The blank-equals-unset assertion below needs no such guard -- both
+        // sides take the same branch whichever it is, which is the property
+        // this test actually exists to prove.
+        if dirs::home_dir().is_some() {
+            assert!(
+                unset.ends_with(".kimi-code/credentials/kimi-code.json"),
+                "unset lookup no longer defaults to ~/.kimi-code: {unset:?}"
+            );
+        }
+
+        for blank in ["", "   ", "\t\n"] {
+            let _guard = EnvVarGuard::set("KIMI_CODE_HOME", blank);
+
+            assert_eq!(
+                kimi_code_candidate(),
+                unset,
+                "KIMI_CODE_HOME={blank:?} must resolve exactly as if unset"
+            );
+        }
+    }
+
+    /// Only blank values are reinterpreted: a non-blank override is used
+    /// verbatim, surrounding whitespace included, because a directory may
+    /// legitimately carry it.
+    #[test]
+    #[serial]
+    fn credentials_path_honors_kimi_code_home_verbatim() {
+        for root in ["/custom/kimi-code", " /padded/kimi-code "] {
+            let _guard = EnvVarGuard::set("KIMI_CODE_HOME", root);
+
+            assert_eq!(
+                kimi_code_candidate(),
+                std::path::PathBuf::from(root)
+                    .join("credentials")
+                    .join("kimi-code.json"),
+                "KIMI_CODE_HOME={root:?} must be used as supplied"
+            );
+        }
+    }
 }

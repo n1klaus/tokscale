@@ -124,6 +124,14 @@ fn contains_delimited(haystack: &str, needle: &str) -> bool {
 pub fn inferred_provider_from_model(model: &str) -> Option<&'static str> {
     let lower = model.to_lowercase();
 
+    // Ollama is a routing prefix, not part of the upstream model family. In
+    // particular, matching the `llama` in `ollama/...` would label every
+    // otherwise-unknown Ollama model as Meta. Re-run inference on the routed
+    // model so known families retain their actual providers.
+    if let Some(routed_model) = lower.strip_prefix("ollama/") {
+        return inferred_provider_from_model(routed_model);
+    }
+
     if lower.contains("claude")
         || lower.contains("anthropic")
         || contains_delimited(&lower, "opus")
@@ -311,6 +319,19 @@ mod tests {
     }
 
     #[test]
+    fn test_inferred_provider_ignores_ollama_route_prefix() {
+        assert_eq!(inferred_provider_from_model("ollama/orca-mini"), None);
+        assert_eq!(
+            inferred_provider_from_model("ollama/qwen3-coder"),
+            Some("qwen")
+        );
+        assert_eq!(
+            inferred_provider_from_model("ollama/llama-3.3"),
+            Some("meta")
+        );
+    }
+
+    #[test]
     fn test_inferred_provider_fugu_maps_to_sakana() {
         assert_eq!(inferred_provider_from_model("fugu"), Some("sakana"));
         assert_eq!(inferred_provider_from_model("fugu-ultra"), Some("sakana"));
@@ -330,6 +351,45 @@ mod tests {
         assert_eq!(inferred_provider_from_model("co4pilot-v2"), None);
         assert_eq!(inferred_provider_from_model("metadata-model"), None);
         assert_eq!(inferred_provider_from_model("metamorphic-v1"), None);
+    }
+
+    /// The families below are matched with plain `contains`, not
+    /// `contains_delimited`, and that asymmetry is load-bearing rather than an
+    /// oversight. Vendors append version digits directly to the family token
+    /// (`qwen3`, `mistral4`) and embed it mid-word (`chatgpt-4o-latest`,
+    /// `codellama`), all of which a delimited match rejects.
+    ///
+    /// Switching these to delimited matching drops the provider on 536 model ids
+    /// in the bundled models.dev/litellm/openrouter catalogs. `contains_delimited`
+    /// stays reserved for short tokens that collide inside ordinary words -- see
+    /// `test_inferred_provider_no_false_positives`.
+    #[test]
+    fn test_inferred_provider_matches_version_suffixed_and_embedded_families() {
+        for model in [
+            "qwen3-coder",
+            "qwen3.7-plus",
+            "qwen2-5-14b-instruct",
+            "qwen3-235b-a22b-instruct-2507",
+        ] {
+            assert_eq!(inferred_provider_from_model(model), Some("qwen"), "{model}");
+        }
+
+        for model in ["chatgpt-4o-latest", "chatgpt-image-latest"] {
+            assert_eq!(
+                inferred_provider_from_model(model),
+                Some("openai"),
+                "{model}"
+            );
+        }
+
+        assert_eq!(
+            inferred_provider_from_model("mistral4-119b"),
+            Some("mistral")
+        );
+        assert_eq!(
+            inferred_provider_from_model("CodeLlama-34b-Instruct-hf"),
+            Some("meta")
+        );
     }
 
     #[test]

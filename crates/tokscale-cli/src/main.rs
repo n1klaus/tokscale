@@ -386,7 +386,7 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum CursorSubcommand {
-    #[command(about = "Login to Cursor with a browser session token")]
+    #[command(about = "Login to Cursor (auto-detect desktop session, or paste browser token)")]
     Login {
         #[arg(long, help = "Label for this Cursor account (e.g., work, personal)")]
         name: Option<String>,
@@ -996,6 +996,7 @@ pub enum ClientFilter {
     DevinCli,
     #[value(name = "devin-desktop")]
     DevinDesktop,
+    Senpi,
     Synthetic,
 }
 
@@ -1045,6 +1046,7 @@ impl ClientFilter {
             Self::Workbuddy => "workbuddy",
             Self::DevinCli => "devin-cli",
             Self::DevinDesktop => "devin-desktop",
+            Self::Senpi => "senpi",
             Self::Synthetic => "synthetic",
         }
     }
@@ -1097,6 +1099,7 @@ impl ClientFilter {
             Self::Workbuddy => Some(ClientId::WorkBuddy),
             Self::DevinCli => Some(ClientId::DevinCli),
             Self::DevinDesktop => Some(ClientId::DevinDesktop),
+            Self::Senpi => Some(ClientId::Senpi),
             Self::Synthetic => None,
         }
     }
@@ -1145,6 +1148,7 @@ impl ClientFilter {
             ClientId::WorkBuddy => Self::Workbuddy,
             ClientId::DevinCli => Self::DevinCli,
             ClientId::DevinDesktop => Self::DevinDesktop,
+            ClientId::Senpi => Self::Senpi,
         }
     }
 
@@ -1353,7 +1357,7 @@ fn cursor_setup_warnings_for_report(
 
     let Some(state) = cursor_setup_state(home_dir) else {
         return vec![
-            "Cursor usage requires Tokscale's Cursor API cache, but the home directory could not be resolved. Run `tokscale cursor login` and `tokscale cursor sync --json`. Tokscale does not parse local `~/.cursor` session data.".to_string(),
+            "Cursor usage requires Tokscale's Cursor API cache, but the home directory could not be resolved. Run `tokscale cursor login` (auto-detects Cursor desktop when signed in) and `tokscale cursor sync --json`. Tokscale does not parse local `~/.cursor` session data.".to_string(),
         ];
     };
     if state.has_cache {
@@ -1361,11 +1365,11 @@ fn cursor_setup_warnings_for_report(
     }
 
     let action = if state.home_override {
-        "run `tokscale cursor login` and `tokscale cursor sync --json`, or populate that cache before running a report with --home"
+        "run `tokscale cursor login` (auto-detects Cursor desktop when signed in) and `tokscale cursor sync --json`, or populate that cache before running a report with --home"
     } else if state.has_credentials {
         "run `tokscale cursor sync --json`"
     } else {
-        "run `tokscale cursor login` and `tokscale cursor sync --json`"
+        "run `tokscale cursor login` (auto-detects Cursor desktop when signed in) and `tokscale cursor sync --json`"
     };
 
     vec![format!(
@@ -3786,6 +3790,7 @@ fn capitalize_client(client: &str) -> String {
         "workbuddy" => "WorkBuddy".to_string(),
         "devin-cli" => "Devin CLI".to_string(),
         "devin-desktop" => "Devin Desktop".to_string(),
+        "senpi" => "Senpi (OmO Native)".to_string(),
         other => other.to_string(),
     }
 }

@@ -24,7 +24,7 @@ pub fn parse_opencodereview_file(path: &Path) -> Vec<UnifiedMessage> {
     let mut messages = Vec::new();
     let mut seen = HashSet::new();
 
-    for line in BufReader::new(file).lines() {
+    for (line_index, line) in BufReader::new(file).lines().enumerate() {
         let Ok(line) = line else { continue };
 
         if !line.contains("llm_response") && !line.contains("session_start") {
@@ -99,8 +99,24 @@ pub fn parse_opencodereview_file(path: &Path) -> Vec<UnifiedMessage> {
             _ => recorded_timestamp,
         };
 
+        // Records carrying their own `timestamp` keep the historical key:
+        // two lines agreeing on the recorded end timestamp, model and usage
+        // are a replayed write of one call, and collapsing them is deliberate.
+        //
+        // Without one, `recorded_timestamp` is the file mtime — the same value
+        // for every record in the file — so that key can no longer separate
+        // two genuinely distinct calls that happen to share a model and token
+        // counts, and silently undercounts them (#941). Fall back to the
+        // record's line number, which is derived from the file's own contents:
+        // a re-parse of an unchanged file reproduces the same keys and still
+        // dedups, while distinct records stay distinct. `duration_ms` alone
+        // would not do — it is optional, and two calls can take equally long.
+        let line_discriminator = match explicit_timestamp {
+            Some(_) => String::new(),
+            None => format!(":line{line_index}"),
+        };
         let dedup_key = format!(
-            "opencodereview:{session_id}:{recorded_timestamp}:{model_id}:{}:{}:{}:{}",
+            "opencodereview:{session_id}:{recorded_timestamp}:{model_id}:{}:{}:{}:{}{line_discriminator}",
             tokens.input, tokens.output, tokens.cache_read, tokens.cache_write,
         );
         if !seen.insert(dedup_key.clone()) {
@@ -197,6 +213,17 @@ mod tests {
         )
     }
 
+    fn llm_response_without_timestamp(
+        model: &str,
+        duration_ms: i64,
+        prompt: i64,
+        completion: i64,
+    ) -> String {
+        format!(
+            r#"{{"type":"llm_response","sessionId":"test-session-123","model":"{model}","duration_ms":{duration_ms},"usage":{{"prompt_tokens":{prompt},"completion_tokens":{completion},"cache_read_tokens":0,"cache_write_tokens":0}}}}"#
+        )
+    }
+
     #[test]
     fn parses_single_llm_response() {
         let content = format!(
@@ -282,6 +309,71 @@ mod tests {
         );
         let msgs = parse_events(&content);
         assert_eq!(msgs.len(), 1, "duplicate records should be collapsed");
+    }
+
+    #[test]
+    fn timestampless_records_with_identical_usage_stay_distinct() {
+        // Regression (#941 finding 2): without a `timestamp` field every
+        // record in the file falls back to the same file mtime, so the
+        // session/timestamp/model/usage key could not tell two genuinely
+        // distinct calls apart and silently collapsed them into one.
+        let content = format!(
+            "{}\n{}\n{}\n",
+            session_start("/home/user/project"),
+            llm_response_without_timestamp("gpt-4o", 1200, 100, 50),
+            llm_response_without_timestamp("gpt-4o", 3400, 100, 50),
+        );
+        let msgs = parse_events(&content);
+
+        assert_eq!(
+            msgs.len(),
+            2,
+            "two distinct timestampless calls must not collapse into one"
+        );
+        assert_ne!(
+            msgs[0].dedup_key, msgs[1].dedup_key,
+            "distinct timestampless records need distinct dedup keys"
+        );
+        assert_eq!(msgs[0].duration_ms, Some(1200));
+        assert_eq!(msgs[1].duration_ms, Some(3400));
+    }
+
+    #[test]
+    fn reparsing_a_timestampless_file_reproduces_the_same_dedup_keys() {
+        // The discriminator must be a pure function of the file's bytes, not
+        // of parse order or wall-clock, so two parses of an unchanged file
+        // agree. Only this parser's own `seen` set reads the key today —
+        // unified_to_parsed drops the field — so this pins the property
+        // before a cross-parse consumer relies on it. Note the rest of the
+        // key still moves when the file grows: with no `timestamp` field
+        // `recorded_timestamp` is the mtime.
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("test-session-123.jsonl");
+        std::fs::write(
+            &path,
+            format!(
+                "{}\n{}\n{}\n",
+                session_start("/home/user/project"),
+                llm_response_without_timestamp("gpt-4o", 1200, 100, 50),
+                llm_response_without_timestamp("gpt-4o", 3400, 100, 50),
+            ),
+        )
+        .unwrap();
+
+        let first: Vec<_> = parse_opencodereview_file(&path)
+            .into_iter()
+            .map(|msg| msg.dedup_key)
+            .collect();
+        let second: Vec<_> = parse_opencodereview_file(&path)
+            .into_iter()
+            .map(|msg| msg.dedup_key)
+            .collect();
+
+        assert_eq!(first.len(), 2);
+        assert_eq!(
+            first, second,
+            "re-parsing an unchanged file must reproduce the same dedup keys"
+        );
     }
 
     #[test]

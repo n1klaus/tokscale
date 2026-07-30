@@ -1344,9 +1344,19 @@ fn scan_all_clients_with_env_strategy_inner(
             .resolve_path_with_env_strategy(home_dir, use_env_roots);
         push_unique_scan_task(&mut tasks, &mut seen_scan_roots, ClientId::Kimi, kimi_path);
 
-        // Kimi Code: ~/.kimi-code/sessions/**/wire.jsonl (supports KIMI_CODE_HOME)
+        // Kimi Code: ~/.kimi-code/sessions/**/wire.jsonl (supports KIMI_CODE_HOME).
+        // Blank exports are treated as unset — matching PathRoot::EnvVar — because
+        // joining "sessions" onto "" yields the root-level /sessions, which both
+        // hides the real sessions and points the walker at an unrelated directory.
+        // Non-blank values are passed through verbatim, leading/trailing space
+        // included, since a path may legitimately contain it.
         let kimi_code_home = if use_env_roots {
-            std::env::var("KIMI_CODE_HOME").unwrap_or_else(|_| format!("{}/.kimi-code", home_dir))
+            let configured = std::env::var("KIMI_CODE_HOME").unwrap_or_default();
+            if configured.trim().is_empty() {
+                format!("{}/.kimi-code", home_dir)
+            } else {
+                configured
+            }
         } else {
             format!("{}/.kimi-code", home_dir)
         };
@@ -2429,6 +2439,16 @@ mod tests {
         File::create(workspace.join("execution")).unwrap();
     }
 
+    fn setup_mock_senpi_dir(base: &std::path::Path) {
+        let senpi_path = base.join(".senpi/agent/sessions/--Users-someone-project--");
+        fs::create_dir_all(&senpi_path).unwrap();
+        let mut file = File::create(
+            senpi_path.join("2026-07-29T15-19-53-436Z_019fae75-f35c-7b20-8d6f-e6dea8f7d9f5.jsonl"),
+        )
+        .unwrap();
+        file.write_all(b"{}").unwrap();
+    }
+
     fn setup_mock_omp_dir(base: &std::path::Path) {
         let omp_path = base.join(".omp/agent/sessions/--omp-test--");
         fs::create_dir_all(&omp_path).unwrap();
@@ -2458,6 +2478,19 @@ mod tests {
         let mut file = File::create(kimi_session.join("wire.jsonl")).unwrap();
         file.write_all(b"{\"type\": \"metadata\", \"protocol_version\": \"1.3\"}\n")
             .unwrap();
+    }
+
+    /// Kimi Code lays sessions out as
+    /// `<root>/sessions/WORKSPACE/SESSION/agents/AGENT/wire.jsonl`, where
+    /// `<root>` is `~/.kimi-code` or whatever KIMI_CODE_HOME points at.
+    fn setup_mock_kimi_code_dir(root: &std::path::Path) -> PathBuf {
+        let agent_dir = root.join("sessions/workspace-1/session-uuid-1/agents/main");
+        fs::create_dir_all(&agent_dir).unwrap();
+        let wire = agent_dir.join("wire.jsonl");
+        let mut file = File::create(&wire).unwrap();
+        file.write_all(b"{\"type\": \"metadata\", \"protocol_version\": \"1.3\"}\n")
+            .unwrap();
+        wire
     }
 
     fn setup_mock_grok_dir(base: &std::path::Path) {
@@ -3502,6 +3535,35 @@ mod tests {
     }
 
     #[test]
+    fn test_scan_all_clients_senpi() {
+        let dir = TempDir::new().unwrap();
+        let home = dir.path();
+        setup_mock_senpi_dir(home);
+
+        let result = scan_all_clients_with_env_strategy(
+            home.to_str().unwrap(),
+            &["senpi".to_string()],
+            false,
+        );
+        assert_eq!(result.get(ClientId::Senpi).len(), 1);
+        assert!(result.get(ClientId::Senpi)[0]
+            .ends_with("2026-07-29T15-19-53-436Z_019fae75-f35c-7b20-8d6f-e6dea8f7d9f5.jsonl"));
+        assert!(result.get(ClientId::Pi).is_empty());
+    }
+
+    #[test]
+    fn test_scan_all_clients_senpi_is_not_scanned_as_pi() {
+        let dir = TempDir::new().unwrap();
+        let home = dir.path();
+        setup_mock_senpi_dir(home);
+
+        let result =
+            scan_all_clients_with_env_strategy(home.to_str().unwrap(), &["pi".to_string()], false);
+        assert!(result.get(ClientId::Pi).is_empty());
+        assert!(result.get(ClientId::Senpi).is_empty());
+    }
+
+    #[test]
     fn test_scan_all_clients_omp_scanned_as_pi() {
         let dir = TempDir::new().unwrap();
         let home = dir.path();
@@ -4301,6 +4363,87 @@ mod tests {
         assert!(result.get(ClientId::Kimi)[0].ends_with("wire.jsonl"));
         assert!(result.get(ClientId::OpenCode).is_empty());
         assert!(result.get(ClientId::Claude).is_empty());
+    }
+
+    /// An explicit KIMI_CODE_HOME moves Kimi Code discovery to that root.
+    #[test]
+    #[serial]
+    fn test_scan_all_clients_kimi_code_home_override() {
+        let mut env = EnvGuard::capture(&["KIMI_CODE_HOME"]);
+        let dir = TempDir::new().unwrap();
+        let home = dir.path().join("home");
+        let custom_root = dir.path().join("custom-kimi-code");
+        let wire = setup_mock_kimi_code_dir(&custom_root);
+        env.set("KIMI_CODE_HOME", &custom_root);
+
+        let result = scan_without_extra_dirs(home.to_str().unwrap(), &["kimi".to_string()]);
+
+        assert_eq!(result.get(ClientId::Kimi), &vec![wire]);
+    }
+
+    /// Only *blank* values are reinterpreted. A non-blank value is used
+    /// verbatim, so a root whose name carries surrounding whitespace still
+    /// resolves — trimming the value here would silently miss it.
+    #[test]
+    #[serial]
+    fn test_scan_all_clients_kimi_code_home_override_is_not_trimmed() {
+        let mut env = EnvGuard::capture(&["KIMI_CODE_HOME"]);
+        let dir = TempDir::new().unwrap();
+        let home = dir.path().join("home");
+        let padded_root = dir.path().join(" padded-kimi-code ");
+        let wire = setup_mock_kimi_code_dir(&padded_root);
+        env.set("KIMI_CODE_HOME", &padded_root);
+
+        let result = scan_without_extra_dirs(home.to_str().unwrap(), &["kimi".to_string()]);
+
+        assert_eq!(result.get(ClientId::Kimi), &vec![wire]);
+    }
+
+    /// A blank KIMI_CODE_HOME — empty or whitespace-only, which is how
+    /// shells export an optional variable that was never given a value — means
+    /// "unset". Without this, `format!("{}/sessions", "")` walks the
+    /// root-level `/sessions` and the user's real sessions go unreported.
+    #[test]
+    #[serial]
+    fn test_scan_all_clients_kimi_code_home_blank_falls_back_to_home() {
+        for blank in ["", "   ", "\t\n"] {
+            let mut env = EnvGuard::capture(&["KIMI_CODE_HOME"]);
+            let dir = TempDir::new().unwrap();
+            let home = dir.path();
+            let wire = setup_mock_kimi_code_dir(&home.join(".kimi-code"));
+            env.set("KIMI_CODE_HOME", blank);
+
+            let result = scan_without_extra_dirs(home.to_str().unwrap(), &["kimi".to_string()]);
+
+            assert_eq!(
+                result.get(ClientId::Kimi),
+                &vec![wire],
+                "KIMI_CODE_HOME={:?} must fall back to <home>/.kimi-code",
+                blank
+            );
+        }
+    }
+
+    /// use_env_roots=false keeps `--home` authoritative: KIMI_CODE_HOME is
+    /// never consulted, blank or not.
+    #[test]
+    #[serial]
+    fn test_scan_all_clients_kimi_code_home_ignored_without_env_roots() {
+        let mut env = EnvGuard::capture(&["KIMI_CODE_HOME"]);
+        let dir = TempDir::new().unwrap();
+        let home = dir.path().join("home");
+        let conflicting = dir.path().join("conflicting-kimi-code");
+        let wire = setup_mock_kimi_code_dir(&home.join(".kimi-code"));
+        setup_mock_kimi_code_dir(&conflicting);
+        env.set("KIMI_CODE_HOME", &conflicting);
+
+        let result = scan_all_clients_with_env_strategy(
+            home.to_str().unwrap(),
+            &["kimi".to_string()],
+            false,
+        );
+
+        assert_eq!(result.get(ClientId::Kimi), &vec![wire]);
     }
 
     #[test]
